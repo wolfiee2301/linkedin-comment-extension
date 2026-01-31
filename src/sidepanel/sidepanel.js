@@ -1,9 +1,8 @@
 /**
  * Side Panel UI Logic
- * Renders comment options, classification data, settings, and history.
+ * Renders comment options with safety status, quality scores,
+ * classification data, learning insights, settings, and history.
  */
-
-// ---- DOM References ----
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -16,6 +15,7 @@ const els = {
   postAuthor: $('#post-author'),
   postText: $('#post-text'),
   postMeta: $('#post-meta'),
+  fallbackWarning: $('#fallback-warning'),
   commentsList: $('#comments-list'),
   rateLimitWarning: $('#rate-limit-warning'),
   errorDisplay: $('#error-display'),
@@ -23,6 +23,11 @@ const els = {
   analysisData: $('#analysis-data'),
   classificationGrid: $('#classification-grid'),
   strategiesList: $('#strategies-list'),
+  strategyRationale: $('#strategy-rationale'),
+  insightsEmpty: $('#insights-empty'),
+  insightsData: $('#insights-data'),
+  strategyStats: $('#strategy-stats'),
+  weeklySuggestions: $('#weekly-suggestions'),
   historyEmpty: $('#history-empty'),
   historyList: $('#history-list'),
   apiKeyInput: $('#api-key-input'),
@@ -45,8 +50,8 @@ els.tabs.forEach(tab => {
     tab.classList.add('tab--active');
     const target = tab.getAttribute('data-tab');
     $(`#tab-${target}`).classList.add('tab-content--active');
-
     if (target === 'history') loadHistory();
+    if (target === 'insights') loadInsights();
   });
 });
 
@@ -57,7 +62,7 @@ els.btnSettings.addEventListener('click', () => {
   $('#tab-settings').classList.add('tab-content--active');
 });
 
-// ---- Toast Notification ----
+// ---- Toast ----
 
 function showToast(message) {
   let toast = $('.toast');
@@ -80,10 +85,8 @@ function renderPostSummary(postData) {
     els.commentsList.hidden = true;
     return;
   }
-
   els.noPost.hidden = true;
   els.postSummary.hidden = false;
-
   els.postAuthor.textContent = postData.authorName || 'Unknown Author';
   els.postText.textContent = postData.text.length > 200
     ? postData.text.slice(0, 200) + '...'
@@ -93,7 +96,9 @@ function renderPostSummary(postData) {
 
 // ---- Render Comments ----
 
-function renderComments(comments) {
+function renderComments(comments, fallbackUsed) {
+  els.fallbackWarning.hidden = !fallbackUsed;
+
   if (!comments || comments.length === 0) {
     els.commentsList.hidden = true;
     return;
@@ -102,56 +107,62 @@ function renderComments(comments) {
   els.commentsList.hidden = false;
   els.commentsList.innerHTML = '';
 
-  comments.forEach(comment => {
+  comments.forEach((comment, idx) => {
     const card = document.createElement('div');
     card.className = 'comment-card';
 
-    const labelClass = `comment-card__label--${comment.label}`;
+    const label = comment.label || `option-${idx + 1}`;
+    const labelClass = `comment-card__label--${label}`;
     const riskClass = `risk--${comment.riskLabel || 'safe'}`;
+    const strategy = comment.strategy_used || comment.strategy || 'unknown';
+    const riskLevel = comment.risk_level || comment.riskLabel || 'safe';
+    const qualityScore = comment.quality_score != null ? comment.quality_score : '-';
 
-    let validationHtml = '';
-    if (comment.validation && !comment.validation.valid) {
-      validationHtml = `<div class="comment-card__validation">
-        ⚠ ${comment.validation.issues.join('; ')}
-      </div>`;
+    // Safety status badge
+    const safetyStatus = comment.safety?.status || 'approve';
+    const statusClass = `status--${safetyStatus}`;
+
+    let safetyIssuesHtml = '';
+    if (comment.safety?.issues?.length > 0) {
+      const issueLines = comment.safety.issues
+        .map(i => `<span class="issue-${i.severity}">${escapeHtml(i.message)}</span>`)
+        .join('<br>');
+      safetyIssuesHtml = `<div class="comment-card__issues">${issueLines}</div>`;
     }
 
     card.innerHTML = `
       <div class="comment-card__header">
-        <span class="comment-card__label ${labelClass}">${comment.label}</span>
-        <span class="comment-card__risk ${riskClass}">${comment.riskLabel || 'safe'}</span>
+        <span class="comment-card__label ${labelClass}">${label}</span>
+        <span class="comment-card__quality">Q: ${qualityScore}/10</span>
+        <span class="comment-card__status ${statusClass}">${safetyStatus}</span>
+        <span class="comment-card__risk ${riskClass}">${riskLevel}</span>
       </div>
-      <div class="comment-card__strategy">Strategy: ${comment.strategy}</div>
+      <div class="comment-card__strategy">Strategy: ${strategy}</div>
       <div class="comment-card__text">${escapeHtml(comment.text)}</div>
-      <div class="comment-card__reasoning">${escapeHtml(comment.reasoning || '')}</div>
-      ${validationHtml}
+      <div class="comment-card__reasoning">${escapeHtml(comment.rationale || comment.reasoning || '')}</div>
+      ${safetyIssuesHtml}
       <div class="comment-card__actions">
         <button class="btn btn--primary btn--small btn-copy" data-text="${escapeAttr(comment.text)}">Copy</button>
+        <span class="comment-card__words">${comment.safety?.wordCount || comment.text.trim().split(/\s+/).length}w</span>
       </div>
     `;
 
-    // Copy button handler
     card.querySelector('.btn-copy').addEventListener('click', async (e) => {
       const text = e.target.getAttribute('data-text');
-      await copyToClipboard(text, comment.label);
+      await copyToClipboard(text);
     });
 
     els.commentsList.appendChild(card);
   });
 }
 
-/**
- * Copy text to clipboard and record usage.
- */
-async function copyToClipboard(text, label) {
+async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
     showToast('Copied to clipboard!');
-
-    // Record the comment was used (for rate limiting)
     chrome.runtime.sendMessage({ type: 'RECORD_COMMENT_USED' });
-  } catch (err) {
-    // Fallback for clipboard API failure
+    addToHistory(text);
+  } catch {
     const textarea = document.createElement('textarea');
     textarea.value = text;
     document.body.appendChild(textarea);
@@ -170,7 +181,6 @@ function renderClassification(classification) {
     els.analysisData.hidden = true;
     return;
   }
-
   els.noAnalysis.hidden = true;
   els.analysisData.hidden = false;
 
@@ -178,6 +188,7 @@ function renderClassification(classification) {
     { label: 'Post Type', value: classification.post_type },
     { label: 'Author Type', value: classification.author_type },
     { label: 'Emotional State', value: classification.emotional_state },
+    { label: 'Engagement', value: classification.engagement_heat || '-' },
     { label: 'Sensitivity', value: classification.sensitivity_flag ? 'YES' : 'No', flag: classification.sensitivity_flag },
     { label: 'Has Question', value: classification.contains_question ? 'Yes' : 'No' },
     { label: 'Sponsored', value: classification.sponsored_content ? 'Yes' : 'No' },
@@ -197,46 +208,85 @@ function renderStrategies(strategies) {
   if (!strategies) return;
 
   const items = [
-    { label: 'Safe', strategy: strategies.safe },
-    { label: 'Alternative', strategy: strategies.alternative },
-    { label: 'Bold', strategy: strategies.bold },
+    { label: 'Primary', strategy: strategies.primary, risk: strategies.primary_risk },
+    { label: 'Alternative', strategy: strategies.alternative, risk: strategies.primary_risk },
+    { label: 'Bold', strategy: strategies.bold || strategies.primary, risk: strategies.bold_risk || strategies.primary_risk },
   ];
+
+  if (strategies.skip_bold) {
+    items[2].label = 'Bold (skipped)';
+    items[2].risk = 'n/a';
+  }
 
   els.strategiesList.innerHTML = items.map(item => `
     <div class="strategy-item">
-      <div class="strategy-item__label">${item.label}: ${item.strategy.label || item.strategy.id}</div>
+      <div class="strategy-item__label">${item.label}: ${item.strategy.label || item.strategy.id} <span class="strategy-risk">[${item.risk}]</span></div>
       <div class="strategy-item__desc">${item.strategy.description || ''}</div>
     </div>
   `).join('');
+
+  els.strategyRationale.textContent = strategies.rationale || '';
 }
 
 // ---- Render Error ----
 
 function renderError(errorMsg) {
-  if (!errorMsg) {
-    els.errorDisplay.hidden = true;
-    return;
-  }
+  if (!errorMsg) { els.errorDisplay.hidden = true; return; }
   els.errorDisplay.hidden = false;
   els.errorDisplay.textContent = errorMsg;
+}
+
+// ---- Insights ----
+
+async function loadInsights() {
+  try {
+    const result = await chrome.storage.local.get('latestInsights');
+    const insights = result.latestInsights;
+    if (!insights || insights.noData) {
+      els.insightsEmpty.hidden = false;
+      els.insightsData.hidden = true;
+      return;
+    }
+    els.insightsEmpty.hidden = true;
+    els.insightsData.hidden = false;
+
+    // Strategy stats
+    if (insights.strategyPerformance) {
+      els.strategyStats.innerHTML = Object.entries(insights.strategyPerformance).map(([s, p]) => `
+        <div class="stat-card">
+          <div class="stat-card__label">${s}</div>
+          <div class="stat-card__value">Avg: ${p.avgScore} | Uses: ${p.uses}</div>
+        </div>
+      `).join('');
+    }
+
+    // Suggestions
+    if (insights.suggestions?.length > 0) {
+      els.weeklySuggestions.innerHTML = insights.suggestions.map(s =>
+        `<div class="suggestion-item">${escapeHtml(s)}</div>`
+      ).join('');
+    } else {
+      els.weeklySuggestions.innerHTML = '<p class="setting-hint">No suggestions yet.</p>';
+    }
+  } catch {
+    els.insightsEmpty.hidden = false;
+    els.insightsData.hidden = true;
+  }
 }
 
 // ---- History ----
 
 async function loadHistory() {
-  // History is stored in IndexedDB via service worker — for now, use chrome.storage
   try {
     const result = await chrome.storage.local.get('commentHistory');
     const history = result.commentHistory || [];
-
     if (history.length === 0) {
       els.historyEmpty.hidden = false;
       els.historyList.innerHTML = '';
       return;
     }
-
     els.historyEmpty.hidden = true;
-    els.historyList.innerHTML = history.slice(0, 20).map(item => `
+    els.historyList.innerHTML = history.slice(0, 30).map(item => `
       <div class="history-item">
         <div class="history-item__date">${new Date(item.timestamp).toLocaleString()}</div>
         <div class="history-item__text">${escapeHtml(item.text)}</div>
@@ -247,19 +297,13 @@ async function loadHistory() {
   }
 }
 
-/**
- * Save a comment to history.
- */
 async function addToHistory(text) {
   try {
     const result = await chrome.storage.local.get('commentHistory');
     const history = result.commentHistory || [];
     history.unshift({ text, timestamp: Date.now() });
-    // Keep last 100 entries
     await chrome.storage.local.set({ commentHistory: history.slice(0, 100) });
-  } catch {
-    // Silently fail
-  }
+  } catch { /* silent */ }
 }
 
 // ---- Settings: API Key ----
@@ -277,30 +321,21 @@ els.btnSaveKey.addEventListener('click', async () => {
   els.apiKeyInput.value = '';
 });
 
-// Load existing key status
 chrome.storage.local.get('apiKey').then(result => {
-  if (result.apiKey) {
-    els.keyStatus.textContent = 'Key is configured.';
-    els.keyStatus.className = 'setting-hint setting-hint--success';
-  } else {
-    els.keyStatus.textContent = 'No key set. Enter your Claude API key above.';
-  }
+  els.keyStatus.textContent = result.apiKey ? 'Key is configured.' : 'No key set.';
+  els.keyStatus.className = result.apiKey ? 'setting-hint setting-hint--success' : 'setting-hint';
 });
 
 // ---- Settings: Persona ----
 
-// Load current persona
 chrome.storage.local.get('persona').then(result => {
-  const persona = result.persona || { tone: 'curious', style: 'insight_first' };
-  els.toneSelect.value = persona.tone;
-  els.styleSelect.value = persona.style;
+  const p = result.persona || { tone: 'curious', style: 'insight_first' };
+  els.toneSelect.value = p.tone;
+  els.styleSelect.value = p.style;
 });
 
 els.btnSavePersona.addEventListener('click', async () => {
-  const persona = {
-    tone: els.toneSelect.value,
-    style: els.styleSelect.value,
-  };
+  const persona = { tone: els.toneSelect.value, style: els.styleSelect.value };
   await chrome.storage.local.set({ persona });
   els.personaStatus.textContent = 'Persona saved.';
   els.personaStatus.className = 'setting-hint setting-hint--success';
@@ -312,37 +347,31 @@ els.btnSavePersona.addEventListener('click', async () => {
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'ANALYSIS_UPDATED') {
     renderPostSummary(message.postData);
-
     if (message.result?.error) {
       renderError(message.result.error);
-      renderComments([]);
+      renderComments([], false);
     } else {
       renderError(null);
-      renderComments(message.result?.comments || []);
+      renderComments(message.result?.comments || [], message.result?.fallbackUsed || false);
     }
-
     renderClassification(message.result?.classification);
     renderStrategies(message.result?.strategies);
   }
 });
 
-// ---- On Panel Open: Fetch Last Analysis ----
+// ---- On Panel Open ----
 
 chrome.runtime.sendMessage({ type: 'GET_CURRENT_POST' }).then(response => {
   if (response?.postData) {
     renderPostSummary(response.postData);
     if (response.result?.comments) {
-      renderComments(response.result.comments);
+      renderComments(response.result.comments, response.result?.fallbackUsed || false);
     }
     renderClassification(response.result?.classification);
     renderStrategies(response.result?.strategies);
-    if (response.result?.error) {
-      renderError(response.result.error);
-    }
+    if (response.result?.error) renderError(response.result.error);
   }
-}).catch(() => {
-  // No previous analysis
-});
+}).catch(() => {});
 
 // ---- Helpers ----
 

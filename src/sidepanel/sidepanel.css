@@ -502,3 +502,132 @@ body {
 .toast--visible {
   opacity: 1;
 }
+
+/* ---- Safety Status Badges ---- */
+
+.comment-card__status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
+.status--approve {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.status--rewrite {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.status--reject {
+  background: #fce4ec;
+  color: #c62828;
+}
+
+/* ---- Quality Score ---- */
+
+.comment-card__quality {
+  font-size: 10px;
+  font-weight: 600;
+  color: #0077b5;
+}
+
+/* ---- Word Count ---- */
+
+.comment-card__words {
+  font-size: 10px;
+  color: #888;
+  align-self: center;
+}
+
+/* ---- Safety Issues ---- */
+
+.comment-card__issues {
+  font-size: 10px;
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.issue-major {
+  color: #c62828;
+}
+
+.issue-minor {
+  color: #e65100;
+}
+
+/* ---- Fallback Label ---- */
+
+.comment-card__label--fallback {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.comment-card__label--primary {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+/* ---- Strategy Risk Tag ---- */
+
+.strategy-risk {
+  font-weight: 400;
+  color: #888;
+  font-size: 10px;
+}
+
+/* ---- Rationale Box ---- */
+
+.rationale-box {
+  background: #fff;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  font-size: 12px;
+  color: #444;
+  font-style: italic;
+}
+
+/* ---- Insights / Stats ---- */
+
+.stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-card {
+  background: #fff;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.stat-card__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1d2226;
+}
+
+.stat-card__value {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestion-item {
+  background: #e3f2fd;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #1565c0;
+}

@@ -1,143 +1,275 @@
 /**
- * Safety Checks
+ * Safety & Quality Checks
  * Validates generated comments against word limits, forbidden patterns,
- * and brand safety rules before showing to the user.
+ * brand safety rules, and specificity requirements.
+ *
+ * Returns approve/rewrite/reject status per comment.
+ * Generates ultra-safe fallback if all 3 are rejected.
  */
 
 const MAX_WORDS = 30;
 
+// ---- Forbidden Patterns (NEVER use) ----
+
 const FORBIDDEN_PATTERNS = [
-  // Generic filler
-  /\bgreat post\b/i,
-  /\blove this\b/i,
-  /\bso true\b/i,
-  /\bthis[.!]*$/i,
-  /\b100%\b/i,
-  /\bcouldn't agree more\b/i,
-  /\btotally agree\b/i,
-  /\bwell said\b/i,
-  /\bspot on\b/i,
-  /\bnailed it\b/i,
-  /\bbrilliant\b/i,
-  /\bamazing post\b/i,
-  /\bawesome\b/i,
+  // Generic filler — exact phrases from spec
+  { pattern: /\bgreat post\b/i, label: 'generic: "Great post"' },
+  { pattern: /\bthanks for sharing\b/i, label: 'generic: "Thanks for sharing"' },
+  { pattern: /\blove this\b/i, label: 'generic: "Love this"' },
+  { pattern: /\bso true\b/i, label: 'generic: "So true"' },
+  { pattern: /\bwell said\b/i, label: 'generic: "Well said"' },
+  { pattern: /\bcouldn't agree more\b/i, label: 'generic: "Couldn\'t agree more"' },
+  { pattern: /\bthis resonates\b/i, label: 'generic: "This resonates"' },
+  { pattern: /\babsolutely\b/i, label: 'generic: "Absolutely"' },
+  { pattern: /\bspot on\b/i, label: 'generic: "Spot on"' },
+  { pattern: /\bnailed it\b/i, label: 'generic: "Nailed it"' },
+  { pattern: /\bamazing post\b/i, label: 'generic: "Amazing post"' },
+  { pattern: /\b100%\b/i, label: 'generic: "100%"' },
 
-  // Hashtags
-  /#\w+/,
+  // Generic questions
+  { pattern: /\bwhat do you think\?\s*$/i, label: 'generic question: "What do you think?"' },
+  { pattern: /\bthoughts\?\s*$/i, label: 'generic question: "Thoughts?"' },
+  { pattern: /\bagree\?\s*$/i, label: 'generic question: "Agree?"' },
 
-  // Excessive emojis (3+ consecutive)
-  /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]{3,}/u,
+  // Template language
+  { pattern: /\bas a \w+,\s*I\b/i, label: 'template: "As a [role], I..."' },
 
-  // Self-promotion patterns
-  /\bcheck out my\b/i,
-  /\bfollow me\b/i,
-  /\blink in bio\b/i,
-  /\bdm me\b/i,
-  /\bbook a call\b/i,
+  // Hashtags (anywhere)
+  { pattern: /#\w+/, label: 'contains hashtag' },
+
+  // Multiple exclamation marks
+  { pattern: /!{2,}/, label: 'multiple exclamation marks' },
+
+  // Self-promotion
+  { pattern: /\bcheck out my\b/i, label: 'self-promotion' },
+  { pattern: /\bfollow me\b/i, label: 'self-promotion' },
+  { pattern: /\blink in bio\b/i, label: 'self-promotion' },
+  { pattern: /\bdm me\b/i, label: 'self-promotion' },
+  { pattern: /\bbook a call\b/i, label: 'self-promotion' },
 
   // AI-sounding filler
-  /\bas an ai\b/i,
-  /\bin today's digital landscape\b/i,
-  /\bleverage\b/i,
-  /\bsynergy\b/i,
-  /\bgame[ -]?changer\b/i,
-  /\bthought leader\b/i,
+  { pattern: /\bas an ai\b/i, label: 'AI language' },
+  { pattern: /\bin today's digital landscape\b/i, label: 'AI language' },
+  { pattern: /\bleverage\b/i, label: 'corporate jargon: "leverage"' },
+  { pattern: /\bsynergy\b/i, label: 'corporate jargon: "synergy"' },
+  { pattern: /\bgame[ -]?changer\b/i, label: 'corporate jargon: "game-changer"' },
+  { pattern: /\bthought leader\b/i, label: 'corporate jargon: "thought leader"' },
+
+  // Excessive emojis (3+ consecutive)
+  { pattern: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]{3,}/u, label: 'excessive emojis' },
 ];
 
+// ---- Brand Safety / Offensive ----
+
 const BRAND_SAFETY_PATTERNS = [
-  // Offensive/inflammatory
-  /\bstupid\b/i,
-  /\bidiot\b/i,
-  /\bdumb\b/i,
-  /\bterrible\b/i,
-  /\bworst\b/i,
+  // Offensive
+  { pattern: /\bstupid\b/i, category: 'offensive' },
+  { pattern: /\bidiot\b/i, category: 'offensive' },
+  { pattern: /\bdumb\b/i, category: 'offensive' },
 
-  // Potentially defamatory
-  /\bscam\b/i,
-  /\bfraud\b/i,
-  /\blie\b/i,
-  /\blying\b/i,
+  // Profanity placeholders (extend as needed)
+  { pattern: /\bwtf\b/i, category: 'profanity' },
+  { pattern: /\bbs\b/i, category: 'profanity' },
 
-  // Political
-  /\bleft[ -]?wing\b/i,
-  /\bright[ -]?wing\b/i,
-  /\bliberal\b/i,
-  /\bconservative\b/i,
+  // Defamatory
+  { pattern: /\bscam\b/i, category: 'defamatory' },
+  { pattern: /\bfraud\b/i, category: 'defamatory' },
+  { pattern: /\blying\b/i, category: 'defamatory' },
+
+  // Political (partisan)
+  { pattern: /\bleft[ -]?wing\b/i, category: 'political' },
+  { pattern: /\bright[ -]?wing\b/i, category: 'political' },
+  { pattern: /\bliberal\b/i, category: 'political' },
+  { pattern: /\bconservative\b/i, category: 'political' },
+
+  // Competitor attacks
+  { pattern: /\bis (dead|dying|terrible|awful)\b/i, category: 'competitor_attack' },
+];
+
+// ---- Generics: could-be-pasted-on-any-post test ----
+
+const ULTRA_GENERIC_PATTERNS = [
+  /^(this|yes|no|exactly|agree|true|same)[.!]*$/i,
+  /^(interesting|fascinating|insightful)[.!]*$/i,
+  /^thanks?[.!]*$/i,
 ];
 
 /**
- * Validate a generated comment.
- * Returns { valid: boolean, issues: string[] }
+ * Check if a comment is too generic (could be copy-pasted to any post).
  */
-export function validateComment(text) {
+function isUltraGeneric(text) {
+  const trimmed = text.trim();
+  if (trimmed.split(/\s+/).length <= 3) return true;
+  return ULTRA_GENERIC_PATTERNS.some(p => p.test(trimmed));
+}
+
+/**
+ * Run all quality + safety checks on a single comment.
+ *
+ * Returns:
+ * {
+ *   status: 'approve' | 'rewrite' | 'reject',
+ *   issues: { severity: 'minor'|'major', message: string }[],
+ *   wordCount: number,
+ *   riskScore: number (0-100),
+ *   riskLabel: 'safe' | 'moderate' | 'risky',
+ * }
+ */
+export function checkComment(text, classification) {
   const issues = [];
 
-  // Word count check
+  // ---- Quality Checks ----
+
   const wordCount = text.trim().split(/\s+/).length;
-  if (wordCount > MAX_WORDS) {
-    issues.push(`Too long: ${wordCount} words (max ${MAX_WORDS})`);
-  }
 
-  // Empty check
+  // Empty
   if (text.trim().length === 0) {
-    issues.push('Comment is empty');
+    issues.push({ severity: 'major', message: 'Comment is empty' });
   }
 
-  // Forbidden pattern check
-  for (const pattern of FORBIDDEN_PATTERNS) {
+  // Word limit
+  if (wordCount > MAX_WORDS) {
+    issues.push({ severity: 'minor', message: `Too long: ${wordCount} words (max ${MAX_WORDS})` });
+  }
+
+  // Forbidden patterns
+  for (const { pattern, label } of FORBIDDEN_PATTERNS) {
     if (pattern.test(text)) {
-      issues.push(`Contains forbidden pattern: ${pattern.source}`);
+      issues.push({ severity: 'major', message: `Forbidden: ${label}` });
     }
   }
 
-  // Brand safety check
-  const brandIssues = [];
-  for (const pattern of BRAND_SAFETY_PATTERNS) {
-    if (pattern.test(text)) {
-      brandIssues.push(pattern.source);
-    }
-  }
-  if (brandIssues.length > 0) {
-    issues.push(`Brand safety concern: ${brandIssues.join(', ')}`);
+  // Ultra-generic test
+  if (isUltraGeneric(text)) {
+    issues.push({ severity: 'major', message: 'Too generic — could be pasted on any post' });
   }
 
-  // Single emoji is OK, but flag multiple
+  // Emoji count (max 1)
   const emojiCount = (text.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu) || []).length;
   if (emojiCount > 1) {
-    issues.push(`Too many emojis: ${emojiCount} (max 1)`);
+    issues.push({ severity: 'minor', message: `Too many emojis: ${emojiCount} (max 1)` });
   }
 
+  // ---- Safety Checks ----
+
+  const brandHits = [];
+  for (const { pattern, category } of BRAND_SAFETY_PATTERNS) {
+    if (pattern.test(text)) {
+      brandHits.push(category);
+    }
+  }
+
+  if (brandHits.includes('profanity')) {
+    issues.push({ severity: 'major', message: 'Contains profanity' });
+  }
+  if (brandHits.includes('offensive')) {
+    issues.push({ severity: 'major', message: 'Contains offensive language' });
+  }
+  if (brandHits.includes('defamatory')) {
+    issues.push({ severity: 'major', message: 'Potentially defamatory language' });
+  }
+  if (brandHits.includes('political')) {
+    issues.push({ severity: 'major', message: 'Contains partisan political language' });
+  }
+  if (brandHits.includes('competitor_attack')) {
+    issues.push({ severity: 'minor', message: 'May read as a competitor attack' });
+  }
+
+  // Sensitivity override: sensitive posts require supportive tone only
+  if (classification?.sensitivity_flag) {
+    // Flag as needing approval even if otherwise clean
+    issues.push({ severity: 'minor', message: 'Sensitive topic — requires approval before posting' });
+  }
+
+  // ---- Compute Status ----
+
+  const majorCount = issues.filter(i => i.severity === 'major').length;
+  const minorCount = issues.filter(i => i.severity === 'minor').length;
+
+  let status;
+  if (majorCount >= 2) {
+    status = 'reject';
+  } else if (majorCount === 1) {
+    status = 'rewrite';
+  } else if (minorCount >= 3) {
+    status = 'rewrite';
+  } else {
+    status = 'approve';
+  }
+
+  // ---- Risk Score ----
+
+  let riskScore = 0;
+  riskScore += majorCount * 25;
+  riskScore += minorCount * 10;
+  if (classification?.sensitivity_flag) riskScore += 20;
+  for (const hit of brandHits) {
+    if (hit === 'profanity' || hit === 'offensive') riskScore += 25;
+    else riskScore += 15;
+  }
+  riskScore = Math.min(100, riskScore);
+
   return {
-    valid: issues.length === 0,
+    status,
     issues,
     wordCount,
+    riskScore,
+    riskLabel: riskScore <= 15 ? 'safe' : riskScore <= 40 ? 'moderate' : 'risky',
   };
 }
 
 /**
- * Compute a risk score for a comment (0-100).
- * 0 = completely safe, 100 = very risky.
+ * Run safety checks on all 3 generated comments.
+ * If all 3 are rejected, returns an ultra-safe fallback instruction.
+ *
+ * @param {Object[]} comments - Array of { text, strategy, label, ... }
+ * @param {Object} classification - From classifyPost()
+ * @returns {Object} { results: [...], allRejected: boolean, fallbackNeeded: boolean }
  */
-export function computeRiskScore(text, classification) {
-  let risk = 0;
+export function checkAllComments(comments, classification) {
+  const results = comments.map(comment => ({
+    ...comment,
+    safety: checkComment(comment.text, classification),
+  }));
 
-  const { valid, issues } = validateComment(text);
-  if (!valid) risk += issues.length * 15;
+  const allRejected = results.every(r => r.safety.status === 'reject');
 
-  // Higher risk if post is sensitive
-  if (classification?.sensitivity_flag) risk += 25;
-
-  // Higher risk for brand safety matches
-  for (const pattern of BRAND_SAFETY_PATTERNS) {
-    if (pattern.test(text)) risk += 20;
-  }
-
-  return Math.min(100, risk);
+  return {
+    results,
+    allRejected,
+    fallbackNeeded: allRejected,
+  };
 }
 
 /**
- * Get a human-readable risk label.
+ * Build an ultra-safe fallback comment prompt instruction.
+ * Used when all 3 generated options are rejected.
  */
+export function buildFallbackInstruction(classification) {
+  return `ALL previous comments were rejected by safety checks. Generate ONE ultra-safe comment:
+- Use ONLY the "ask_question" strategy
+- Risk level: safe
+- Tone: curious or supportive ONLY
+- Must be under 20 words
+- Must reference a specific detail from the post
+- Zero controversy, zero opinion, zero humor
+- Post type: ${classification.post_type}, Sensitivity: ${classification.sensitivity_flag ? 'YES' : 'No'}`;
+}
+
+// Backward-compatible exports
+export function validateComment(text) {
+  const result = checkComment(text, null);
+  return {
+    valid: result.status === 'approve',
+    issues: result.issues.map(i => i.message),
+    wordCount: result.wordCount,
+  };
+}
+
+export function computeRiskScore(text, classification) {
+  return checkComment(text, classification).riskScore;
+}
+
 export function riskLabel(score) {
   if (score <= 15) return 'safe';
   if (score <= 40) return 'moderate';

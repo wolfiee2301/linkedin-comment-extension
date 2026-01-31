@@ -6,8 +6,8 @@
 import { classifyPost } from '../core/classifier.js';
 import { selectStrategies } from '../core/strategies.js';
 import { loadPersona } from '../core/persona.js';
-import { validateComment, computeRiskScore, riskLabel } from '../core/safety.js';
-import { generateComments } from '../api/claude.js';
+import { checkAllComments, buildFallbackInstruction, checkComment, riskLabel } from '../core/safety.js';
+import { generateComments, generateFallback } from '../api/claude.js';
 
 // ---- Rate Limiter ----
 
@@ -22,17 +22,14 @@ function checkRateLimit() {
   const now = Date.now();
   const oneHourAgo = now - 60 * 60 * 1000;
 
-  // Clean old timestamps
   commentTimestamps = commentTimestamps.filter(ts => ts > oneHourAgo);
 
-  // Check hourly limit
   if (commentTimestamps.length >= RATE_LIMIT.maxPerHour) {
     const oldestInWindow = commentTimestamps[0];
     const waitMinutes = Math.ceil((oldestInWindow + 60 * 60 * 1000 - now) / 60000);
     return { allowed: false, reason: `Hourly limit reached (${RATE_LIMIT.maxPerHour}/hr). Try again in ~${waitMinutes} min.` };
   }
 
-  // Check minimum gap
   if (commentTimestamps.length > 0) {
     const lastTs = commentTimestamps[commentTimestamps.length - 1];
     const gap = now - lastTs;
@@ -51,7 +48,6 @@ function recordCommentTimestamp() {
 
 // ---- Side Panel Opener ----
 
-// Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
@@ -63,7 +59,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleAnalyzePost(message.postData, sender.tab?.id)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message }));
-    return true; // keep channel open for async response
+    return true;
   }
 
   if (message.type === 'CHECK_RATE_LIMIT') {
@@ -78,7 +74,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'GET_CURRENT_POST') {
-    // Forward latest analyzed post to the side panel
     sendResponse({ postData: lastAnalyzedPost, result: lastAnalysisResult });
     return false;
   }
@@ -104,38 +99,61 @@ async function handleAnalyzePost(postData, tabId) {
   try {
     generated = await generateComments(postData, classification, strategies, persona);
   } catch (err) {
-    // Store partial result so side panel can show classification
     lastAnalyzedPost = postData;
     lastAnalysisResult = {
       classification,
       strategies,
       error: err.message,
     };
-
-    // Notify side panel of update
     notifySidePanel(tabId);
-
     throw err;
   }
 
-  // 5. Validate each comment through safety checks
-  const validatedComments = generated.comments.map(comment => {
-    const validation = validateComment(comment.text);
-    const risk = computeRiskScore(comment.text, classification);
-    return {
-      ...comment,
-      validation,
-      riskScore: risk,
-      riskLabel: riskLabel(risk),
-    };
-  });
+  // 5. Run safety + quality checks on all 3 comments
+  const safetyResults = checkAllComments(generated.comments, classification);
+
+  let finalComments;
+
+  if (safetyResults.fallbackNeeded) {
+    // All 3 rejected — generate ultra-safe fallback
+    try {
+      const fallbackInstruction = buildFallbackInstruction(classification);
+      const fallback = await generateFallback(postData, classification, fallbackInstruction);
+      const fallbackSafety = checkComment(fallback.text, classification);
+      finalComments = [{
+        label: 'fallback',
+        strategy_used: fallback.strategy_used || 'ask_question',
+        risk_level: 'safe',
+        text: fallback.text,
+        rationale: 'Ultra-safe fallback — all original options were rejected by safety checks.',
+        quality_score: fallback.quality_score || 5,
+        safety: fallbackSafety,
+        riskScore: fallbackSafety.riskScore,
+        riskLabel: fallbackSafety.riskLabel,
+      }];
+    } catch {
+      // Even fallback failed — show originals with warnings
+      finalComments = safetyResults.results.map(r => ({
+        ...r,
+        riskScore: r.safety.riskScore,
+        riskLabel: r.safety.riskLabel,
+      }));
+    }
+  } else {
+    finalComments = safetyResults.results.map(r => ({
+      ...r,
+      riskScore: r.safety.riskScore,
+      riskLabel: r.safety.riskLabel,
+    }));
+  }
 
   // 6. Store result
   lastAnalyzedPost = postData;
   lastAnalysisResult = {
     classification,
     strategies,
-    comments: validatedComments,
+    comments: finalComments,
+    fallbackUsed: safetyResults.fallbackNeeded,
     generatedAt: Date.now(),
   };
 
@@ -145,15 +163,10 @@ async function handleAnalyzePost(postData, tabId) {
   return { success: true };
 }
 
-/**
- * Send a message to the side panel to refresh.
- */
 function notifySidePanel(tabId) {
   chrome.runtime.sendMessage({
     type: 'ANALYSIS_UPDATED',
     postData: lastAnalyzedPost,
     result: lastAnalysisResult,
-  }).catch(() => {
-    // Side panel may not be open — ignore
-  });
+  }).catch(() => {});
 }

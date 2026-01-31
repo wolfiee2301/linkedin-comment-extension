@@ -8,18 +8,17 @@
 </head>
 <body>
   <div id="app">
-    <!-- Header -->
     <header class="header">
-      <h1 class="header__title">✦ LinkedIn AI</h1>
+      <h1 class="header__title">LinkedIn AI</h1>
       <div class="header__actions">
-        <button id="btn-settings" class="btn-icon" title="Settings">⚙</button>
+        <button id="btn-settings" class="btn-icon" title="Settings">&#9881;</button>
       </div>
     </header>
 
-    <!-- Tab Navigation -->
     <nav class="tabs">
       <button class="tab tab--active" data-tab="comments">Comments</button>
       <button class="tab" data-tab="analysis">Analysis</button>
+      <button class="tab" data-tab="insights">Insights</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
@@ -27,7 +26,6 @@
     <!-- Comments Tab -->
     <section id="tab-comments" class="tab-content tab-content--active">
       <div id="no-post" class="empty-state">
-        <p class="empty-state__icon">✦</p>
         <p class="empty-state__text">Click <strong>"Analyze"</strong> on any LinkedIn post to get started.</p>
       </div>
 
@@ -37,10 +35,12 @@
         <div class="post-summary__meta" id="post-meta"></div>
       </div>
 
+      <div id="fallback-warning" class="warning" hidden>
+        All generated comments failed safety checks. Showing ultra-safe fallback.
+      </div>
+
       <div id="comments-list" class="comments-list" hidden></div>
-
       <div id="rate-limit-warning" class="warning" hidden></div>
-
       <div id="error-display" class="error" hidden></div>
     </section>
 
@@ -52,9 +52,23 @@
       <div id="analysis-data" hidden>
         <h3 class="section-title">Classification</h3>
         <div id="classification-grid" class="classification-grid"></div>
-
-        <h3 class="section-title">Selected Strategies</h3>
+        <h3 class="section-title">Strategies</h3>
         <div id="strategies-list" class="strategies-list"></div>
+        <h3 class="section-title">Rationale</h3>
+        <div id="strategy-rationale" class="rationale-box"></div>
+      </div>
+    </section>
+
+    <!-- Insights Tab -->
+    <section id="tab-insights" class="tab-content">
+      <div id="insights-empty" class="empty-state">
+        <p class="empty-state__text">No engagement data yet. Use comments and check back later.</p>
+      </div>
+      <div id="insights-data" hidden>
+        <h3 class="section-title">Strategy Performance</h3>
+        <div id="strategy-stats" class="stats-grid"></div>
+        <h3 class="section-title">Suggestions</h3>
+        <div id="weekly-suggestions" class="suggestions-list"></div>
       </div>
     </section>
 
@@ -81,9 +95,13 @@
         <select id="tone-select" class="select">
           <option value="curious">Curious</option>
           <option value="analytical">Analytical</option>
-          <option value="confident">Confident</option>
-          <option value="supportive">Supportive</option>
           <option value="witty">Witty</option>
+          <option value="confident">Confident</option>
+          <option value="thoughtful">Thoughtful</option>
+          <option value="direct">Direct</option>
+          <option value="playful">Playful</option>
+          <option value="opinionated">Opinionated</option>
+          <option value="supportive">Supportive</option>
         </select>
       </div>
       <div class="setting-group">
@@ -91,9 +109,11 @@
         <select id="style-select" class="select">
           <option value="insight_first">Insight-First</option>
           <option value="question_first">Question-First</option>
-          <option value="story_first">Story-First</option>
+          <option value="punchy">Punchy</option>
+          <option value="framework">Framework</option>
+          <option value="story">Story</option>
+          <option value="data_point">Data-Point</option>
           <option value="contrarian">Contrarian</option>
-          <option value="direct">Direct</option>
         </select>
       </div>
       <button id="btn-save-persona" class="btn btn--primary">Save Persona</button>
@@ -101,8 +121,7 @@
 
       <h3 class="section-title">Rate Limits</h3>
       <div class="setting-info">
-        <p>Max 7 comments/hour</p>
-        <p>Min 2 min gap between comments</p>
+        <p>Max 7 comments/hour | Min 2 min gap</p>
         <p id="rate-limit-status"></p>
       </div>
     </section>
