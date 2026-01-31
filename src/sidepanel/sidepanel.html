@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkedIn AI Comments</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <h1 class="header__title">✦ LinkedIn AI</h1>
+      <div class="header__actions">
+        <button id="btn-settings" class="btn-icon" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab tab--active" data-tab="comments">Comments</button>
+      <button class="tab" data-tab="analysis">Analysis</button>
+      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <!-- Comments Tab -->
+    <section id="tab-comments" class="tab-content tab-content--active">
+      <div id="no-post" class="empty-state">
+        <p class="empty-state__icon">✦</p>
+        <p class="empty-state__text">Click <strong>"Analyze"</strong> on any LinkedIn post to get started.</p>
+      </div>
+
+      <div id="post-summary" class="post-summary" hidden>
+        <div class="post-summary__author" id="post-author"></div>
+        <div class="post-summary__text" id="post-text"></div>
+        <div class="post-summary__meta" id="post-meta"></div>
+      </div>
+
+      <div id="comments-list" class="comments-list" hidden></div>
+
+      <div id="rate-limit-warning" class="warning" hidden></div>
+
+      <div id="error-display" class="error" hidden></div>
+    </section>
+
+    <!-- Analysis Tab -->
+    <section id="tab-analysis" class="tab-content">
+      <div id="no-analysis" class="empty-state">
+        <p class="empty-state__text">No post analyzed yet.</p>
+      </div>
+      <div id="analysis-data" hidden>
+        <h3 class="section-title">Classification</h3>
+        <div id="classification-grid" class="classification-grid"></div>
+
+        <h3 class="section-title">Selected Strategies</h3>
+        <div id="strategies-list" class="strategies-list"></div>
+      </div>
+    </section>
+
+    <!-- History Tab -->
+    <section id="tab-history" class="tab-content">
+      <div id="history-empty" class="empty-state">
+        <p class="empty-state__text">No comment history yet.</p>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
+    <!-- Settings Tab -->
+    <section id="tab-settings" class="tab-content">
+      <h3 class="section-title">API Key</h3>
+      <div class="setting-group">
+        <input type="password" id="api-key-input" class="input" placeholder="Enter your Claude API key">
+        <button id="btn-save-key" class="btn btn--primary">Save Key</button>
+        <p id="key-status" class="setting-hint"></p>
+      </div>
+
+      <h3 class="section-title">Persona</h3>
+      <div class="setting-group">
+        <label class="setting-label">Tone</label>
+        <select id="tone-select" class="select">
+          <option value="curious">Curious</option>
+          <option value="analytical">Analytical</option>
+          <option value="confident">Confident</option>
+          <option value="supportive">Supportive</option>
+          <option value="witty">Witty</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <label class="setting-label">Style</label>
+        <select id="style-select" class="select">
+          <option value="insight_first">Insight-First</option>
+          <option value="question_first">Question-First</option>
+          <option value="story_first">Story-First</option>
+          <option value="contrarian">Contrarian</option>
+          <option value="direct">Direct</option>
+        </select>
+      </div>
+      <button id="btn-save-persona" class="btn btn--primary">Save Persona</button>
+      <p id="persona-status" class="setting-hint"></p>
+
+      <h3 class="section-title">Rate Limits</h3>
+      <div class="setting-info">
+        <p>Max 7 comments/hour</p>
+        <p>Min 2 min gap between comments</p>
+        <p id="rate-limit-status"></p>
+      </div>
+    </section>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
